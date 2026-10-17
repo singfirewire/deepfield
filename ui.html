@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEEPFIELD — disk space analyzer</title>
+<style>
+  :root{
+    --bg:#070a12; --bg2:#0b1120; --panel:#0e1526; --line:#1b2741;
+    --txt:#e6edf7; --dim:#7d8ba6; --dim2:#54617a;
+    --accent:#6ee7ff; --accent2:#8b7cf8;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:
+      radial-gradient(1100px 600px at 12% -10%, #16234a 0%, transparent 60%),
+      radial-gradient(900px 500px at 95% 0%, #1b1233 0%, transparent 55%),
+      var(--bg);
+    color:var(--txt);
+    font:14px/1.45 "Segoe UI","Inter",system-ui,-apple-system,"Noto Sans Thai",sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:"JetBrains Mono","Cascadia Mono",Consolas,ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+  /* ---------- header ---------- */
+  header{
+    height:62px;display:flex;align-items:center;gap:18px;padding:0 20px;
+    border-bottom:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(13,20,36,.92),rgba(9,14,26,.72));
+    backdrop-filter:blur(8px);position:relative;z-index:5;
+  }
+  .logo{display:flex;align-items:center;gap:10px;padding-right:16px;border-right:1px solid var(--line)}
+  .logo b{font-size:15px;letter-spacing:.22em;font-weight:700}
+  .logo span{display:block;font-size:9.5px;letter-spacing:.16em;color:var(--dim2);margin-top:1px}
+  .orb{
+    width:26px;height:26px;border-radius:50%;
+    background:radial-gradient(circle at 32% 30%,#a5f3ff,#6366f1 55%,#3b1d70 100%);
+    box-shadow:0 0 18px rgba(110,231,255,.55),inset 0 0 6px rgba(255,255,255,.4);
+    animation:pulse 4s ease-in-out infinite;
+  }
+  @keyframes pulse{50%{box-shadow:0 0 26px rgba(139,124,248,.75),inset 0 0 8px rgba(255,255,255,.55)}}
+
+  nav.crumbs{display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden}
+  nav.crumbs button{
+    background:transparent;border:0;color:var(--dim);cursor:pointer;
+    font:inherit;font-size:12.5px;padding:5px 8px;border-radius:7px;white-space:nowrap;
+    max-width:320px;overflow:hidden;text-overflow:ellipsis;
+  }
+  nav.crumbs button:hover{background:#16203a;color:var(--txt)}
+  nav.crumbs button.cur{color:var(--accent);font-weight:600}
+  nav.crumbs i{color:var(--dim2);font-style:normal;font-size:11px}
+
+  .chips{display:flex;gap:8px;align-items:center}
+  .chip{
+    display:flex;flex-direction:column;line-height:1.15;
+    padding:6px 11px;border:1px solid var(--line);border-radius:9px;background:#0c1424;
+  }
+  .chip u{text-decoration:none;font-size:9px;letter-spacing:.1em;color:var(--dim2);text-transform:uppercase}
+  .chip b{font-size:13.5px;font-weight:600}
+  .chip.big b{color:var(--accent);font-size:15px}
+  .chip.warn b{color:#fbbf24}
+
+  /* ---------- layout ---------- */
+  main{display:flex;height:calc(100% - 62px)}
+  #stage{flex:1;position:relative;min-width:0}
+  canvas{display:block;width:100%;height:100%;cursor:pointer}
+
+  aside{
+    width:340px;flex:0 0 340px;border-left:1px solid var(--line);
+    background:linear-gradient(180deg,rgba(12,18,32,.9),rgba(8,12,22,.95));
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .search{padding:12px 14px;border-bottom:1px solid var(--line)}
+  .search input{
+    width:100%;background:#080d18;border:1px solid var(--line);border-radius:9px;
+    padding:9px 11px;color:var(--txt);font:inherit;font-size:12.5px;outline:none;
+  }
+  .search input:focus{border-color:#2b3f66;box-shadow:0 0 0 3px rgba(110,231,255,.08)}
+  .search input::placeholder{color:var(--dim2)}
+
+  .sec{padding:12px 14px 6px;display:flex;justify-content:space-between;align-items:baseline}
+  .sec h3{margin:0;font-size:9.5px;letter-spacing:.15em;color:var(--dim2);text-transform:uppercase;font-weight:600}
+  .sec em{font-style:normal;font-size:10.5px;color:var(--dim2)}
+
+  #list{flex:1;overflow-y:auto;padding:0 8px 8px}
+  #list::-webkit-scrollbar{width:8px}
+  #list::-webkit-scrollbar-thumb{background:#1e2b46;border-radius:4px}
+  .row{
+    display:grid;grid-template-columns:1fr auto;gap:4px 8px;
+    padding:7px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent;
+  }
+  .row:hover{background:#131d33;border-color:#20304f}
+  .row .nm{display:flex;align-items:center;gap:6px;font-size:12px;overflow:hidden}
+  .row .nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .row .sz{font-size:11.5px;color:var(--dim);text-align:right}
+  .row .b{grid-column:1/-1;height:4px;border-radius:2px;background:#16203a;overflow:hidden}
+  .row .b i{display:block;height:100%;border-radius:2px}
+  .dot{width:7px;height:7px;border-radius:2px;flex:0 0 7px}
+
+  .legend{padding:10px 14px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:5px 12px}
+  .legend span{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--dim)}
+  .foot{padding:9px 14px 12px;border-top:1px solid var(--line);color:var(--dim2);font-size:10px;line-height:1.6}
+  kbd{background:#16203a;border:1px solid #24334f;border-radius:4px;padding:0 4px;font-size:9.5px;color:var(--dim)}
+
+  #tip{
+    position:fixed;pointer-events:none;z-index:20;opacity:0;transition:opacity .1s;
+    background:rgba(9,14,26,.97);border:1px solid #26364f;border-radius:9px;
+    padding:8px 11px;max-width:460px;box-shadow:0 12px 34px rgba(0,0,0,.6);
+  }
+  #tip .t1{font-size:12px;font-weight:600;word-break:break-all}
+  #tip .t2{font-size:11px;color:var(--dim);margin-top:3px}
+  #tip .t3{font-size:10px;color:var(--dim2);margin-top:3px;word-break:break-all}
+  .empty{display:flex;height:100%;align-items:center;justify-content:center;color:var(--dim2);font-size:13px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="orb"></div>
+    <div><b>DEEPFIELD</b><span>SPACE ANALYZER v1.0</span></div>
+  </div>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="chips">
+    <div class="chip big"><u>ขนาดรวม</u><b class="mono" id="cSize">—</b></div>
+    <div class="chip"><u>ไฟล์</u><b class="mono" id="cFiles">—</b></div>
+    <div class="chip"><u>โฟลเดอร์</u><b class="mono" id="cDirs">—</b></div>
+    <div class="chip"><u>สแกนใช้เวลา</u><b class="mono" id="cTime">—</b></div>
+    <div class="chip warn" id="cErrWrap" style="display:none"><u>ข้าม</u><b class="mono" id="cErr">0</b></div>
+  </div>
+</header>
+
+<main>
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <aside>
+    <div class="search">
+      <input id="q" placeholder="ค้นหาไฟล์/โฟลเดอร์ทั้งเครื่อง…" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="sec"><h3 id="listTitle">ใหญ่สุดในโฟลเดอร์นี้</h3><em id="listCount"></em></div>
+    <div id="list"></div>
+    <div class="legend" id="legend"></div>
+    <div class="foot">
+      คลิกเพื่อซูมเข้าโฟลเดอร์ · <kbd>Backspace</kbd> ถอยขึ้น · ดับเบิลคลิกไฟล์ = เปิดใน Explorer<br>
+      ข้าม junction/symlink และโฟลเดอร์ที่ไม่มีสิทธิ์ · ขนาดรวม hardlink อาจซ้ำ
+    </div>
+  </aside>
+</main>
+
+<div id="tip"><div class="t1"></div><div class="t2"></div><div class="t3"></div></div>
+
+<script>
+const CATS = [
+  {k:'video',  th:'วิดีโอ', c:'#ff5d8f', ex:['mp4','mkv','avi','mov','wmv','flv','webm','m4v','mpg','mpeg','ts','m2ts','mts','vob','3gp']},
+  {k:'image',  th:'รูปภาพ', c:'#38bdf8', ex:['jpg','jpeg','png','gif','webp','svg','bmp','tif','tiff','heic','heif','psd','psb','ico','cr2','cr3','crw','nef','arw','dng','orf','rw2','raf','pef','srw','3fr','x3f','rwl','mrw','nrw','sr2','af','afphoto']},
+  {k:'audio',  th:'เสียง', c:'#a78bfa', ex:['mp3','wav','flac','aac','ogg','m4a','wma','opus','aiff','ape','alac','mid','midi']},
+  {k:'archive',th:'บีบอัด/อิมเมจ', c:'#fbbf24', ex:['zip','rar','7z','tar','gz','bz2','xz','zst','iso','apk','cab','msi','jar','wim','esd','vhd','vhdx','vmdk','vdi','qcow2','img','dmg','gho']},
+  {k:'code',   th:'โค้ด', c:'#34d399', ex:['js','mjs','cjs','ts','tsx','jsx','go','py','c','cpp','cc','h','hpp','cs','rs','java','kt','kts','html','htm','css','scss','sass','less','json','xml','yml','yaml','toml','md','mdx','sql','sh','bash','zsh','bat','cmd','ps1','vue','svelte','php','rb','swift','dart','lua','pl','r','m','mm','ipynb','lock','map']},
+  {k:'docs',   th:'เอกสาร', c:'#fb923c', ex:['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','rtf','csv','epub','odt','ods','odp','pages','numbers','key']},
+  {k:'system', th:'ระบบ/ไบนารี', c:'#94a3b8', ex:['exe','dll','sys','drv','dat','bin','log','tmp','db','sqlite','sqlite3','pak','asar','node','pdb','lib','obj','o','class','so','dylib','mui','cpl','ocx','tlb','manifest','cat','inf']},
+  {k:'other',  th:'อื่น ๆ', c:'#64748b', ex:[]},
+];
+const CATMAP = {}; CATS.forEach(c=>c.ex.forEach(e=>CATMAP[e]=c));
+const CATBYKEY = {}; CATS.forEach(c=>CATBYKEY[c.k]=c);
+const DIRCOLOR = '#7c8cf8';
+
+const fmt = b => {
+  if (b < 1024) return b + ' B';
+  const u = ['KB','MB','GB','TB','PB']; let v = b, i = -1;
+  while (v >= 1024 && i < u.length-1){ v/=1024; i++; }
+  return (v>=100? v.toFixed(0) : v.toFixed(1)) + ' ' + u[i];
+};
+const ext = n => { const i = n.lastIndexOf('.'); return i>0 ? n.slice(i+1).toLowerCase() : ''; };
+const catOfFile = n => CATMAP[ext(n.n)] ? CATMAP[ext(n.n)].k : 'other';
+
+/* folder colour = colour of the category that actually occupies most bytes
+   inside it, so the map reads as data instead of a wall of one hue. */
+const CATMEMO = new Map();
+function catMap(n){
+  let m = CATMEMO.get(n);
+  if(m) return m;
+  if(n.c && n.c.length){
+    m = {};
+    for(const c of n.c){ const s = catMap(c); for(const k in s) m[k] = (m[k]||0) + s[k]; }
+    if(!Object.keys(m).length) m = {other: n.s||1};
+  } else {
+    m = {}; m[catOfFile(n)] = n.s||1;
+  }
+  CATMEMO.set(n, m);
+  return m;
+}
+function dominant(n){
+  const m = catMap(n); let best='other', bv=-1;
+  for(const k in m){ if(m[k]>bv){ bv=m[k]; best=k; } }
+  return best;
+}
+function colorOf(n){
+  const k = n.k || (n.d ? dominant(n) : catOfFile(n));
+  const c = CATBYKEY[k] || CATS[CATS.length-1];
+  return c.c;
+}
+
+let META = null, ROOT = null, VIEW = [], QUIET = false;
+
+const $ = s => document.querySelector(s);
+const cv = $('#cv'), ctx = cv.getContext('2d');
+let HOVER = -1, TILES = [], SEL = null;
+
+/* ---------- squarified treemap ---------- */
+function worst(row, side, scale){
+  let sum=0, mx=0, mn=Infinity;
+  for(const it of row){ const a=it.value*scale; sum+=a; if(a>mx)mx=a; if(a<mn)mn=a; }
+  if(sum<=0) return Infinity;
+  const s2=sum*sum, l2=side*side;
+  return Math.max(l2*mx/s2, s2/(l2*(mn||1e-9)));
+}
+function squarify(items, x, y, w, h){
+  const out=[]; const total=items.reduce((a,b)=>a+b.value,0);
+  if(total<=0||w<=1||h<=1) return out;
+  const scale=(w*h)/total; let rest=items.slice(); let r={x,y,w,h};
+  while(rest.length){
+    const side=Math.min(r.w,r.h); if(side<=0.5) break;
+    const row=[rest[0]]; let i=1, cur=worst(row,side,scale);
+    while(i<rest.length){
+      const t=row.concat([rest[i]]), wv=worst(t,side,scale);
+      if(wv<=cur){ row.push(rest[i]); cur=wv; i++; } else break;
+    }
+    rest=rest.slice(i);
+    const rs=row.reduce((a,b)=>a+b.value,0)*scale;
+    if(r.w>=r.h){
+      const cw=Math.min(rs/r.h, r.w); let yy=r.y;
+      for(const it of row){
+        const hh=Math.min((it.value*scale)/cw, r.y+r.h-yy);
+        out.push({...it,x:r.x,y:yy,w:cw,h:hh}); yy+=hh;
+      }
+      r={x:r.x+cw,y:r.y,w:Math.max(0,r.w-cw),h:r.h};
+    } else {
+      const rh=Math.min(rs/r.w, r.h); let xx=r.x;
+      for(const it of row){
+        const ww=Math.min((it.value*scale)/rh, r.x+r.w-xx);
+        out.push({...it,x:xx,y:r.y,w:ww,h:rh}); xx+=ww;
+      }
+      r={x:r.x,y:r.y+rh,w:r.w,h:Math.max(0,r.h-rh)};
+    }
+  }
+  return out;
+}
+
+/* ---------- render ---------- */
+function resize(){
+  const r = cv.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio||1, 2);
+  cv.width = Math.max(1, Math.floor(r.width*dpr));
+  cv.height = Math.max(1, Math.floor(r.height*dpr));
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+
+function curNode(){ return VIEW[VIEW.length-1]; }
+
+function draw(){
+  const r = cv.getBoundingClientRect(), W = r.width, H = r.height;
+  ctx.clearRect(0,0,W,H);
+  const node = curNode();
+  if(!node) return;
+  const kids = (node.c||[]).filter(c=>c.s>0).slice();
+  kids.sort((a,b)=>b.s-a.s);
+  const total = kids.reduce((a,b)=>a+b.s,0);
+
+  if(!kids.length){
+    ctx.fillStyle='#54617a'; ctx.font='13px "Segoe UI",sans-serif'; ctx.textAlign='center';
+    ctx.fillText(total===0 ? 'โฟลเดอร์ว่าง' : 'ไม่มีรายการที่แสดงได้', W/2, H/2);
+    TILES = []; return;
+  }
+
+  const items = kids.map((c,i)=>({value:Math.max(c.s,1), node:c, idx:i}));
+  TILES = squarify(items, 0, 0, W, H);
+
+  for(const t of TILES){
+    const c = t.node, col = colorOf(c);
+    const pad = t.w>6 && t.h>6 ? 1 : 0;
+    const x=t.x+pad, y=t.y+pad, w=Math.max(0,t.w-pad*2), h=Math.max(0,t.h-pad*2);
+    ctx.fillStyle = col;
+    ctx.globalAlpha = c.d ? 0.46 : 0.78;
+    ctx.beginPath(); ctx.rect(x,y,w,h); ctx.fill();
+    // crisp top edge in full-strength colour gives big blocks an outline
+    if(w>10 && h>10){ ctx.globalAlpha = 0.95; ctx.fillRect(x, y, w, 2); }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = c.d ? 'rgba(190,205,255,.22)' : 'rgba(255,255,255,.12)';
+    ctx.lineWidth = 1; ctx.stroke();
+
+    if(t.idx === HOVER){
+      ctx.fillStyle='rgba(255,255,255,.12)'; ctx.fillRect(x,y,w,h);
+      ctx.strokeStyle='#eaf6ff'; ctx.lineWidth=1.6; ctx.strokeRect(x+0.5,y+0.5,w-1,h-1);
+    }
+
+    if(w>54 && h>17){
+      ctx.save();
+      ctx.beginPath(); ctx.rect(x+3,y+1,w-6,h-2); ctx.clip();
+      ctx.fillStyle='rgba(255,255,255,.96)';
+      ctx.font='600 11.5px "Segoe UI","Noto Sans Thai",sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='top';
+      ctx.fillText(c.n, x+6, y+4);
+      if(h>34){
+        ctx.fillStyle='rgba(255,255,255,.62)';
+        ctx.font='10.5px "JetBrains Mono",Consolas,monospace';
+        ctx.fillText(fmt(c.s), x+6, y+19);
+      }
+      if(h>52 && node.s>0){
+        ctx.fillStyle='rgba(255,255,255,.42)';
+        ctx.font='10px "JetBrains Mono",Consolas,monospace';
+        ctx.fillText((c.s/node.s*100).toFixed(1)+'%', x+6, y+33);
+      }
+      ctx.restore();
+    }
+  }
+}
+
+function hitTest(mx,my){
+  for(const t of TILES){
+    if(mx>=t.x && mx<=t.x+t.w && my>=t.y && my<=t.y+t.h) return t;
+  }
+  return null;
+}
+
+/* ---------- sidebar ---------- */
+function renderBread(){
+  const el = $('#crumbs'); el.innerHTML='';
+  VIEW.forEach((n,i)=>{
+    if(i>0){ const s=document.createElement('i'); s.textContent='›'; el.appendChild(s); }
+    const b=document.createElement('button');
+    b.textContent = i===0 ? (n.n || META.root) : n.n;
+    if(i===VIEW.length-1) b.className='cur';
+    b.onclick=()=>{ VIEW = VIEW.slice(0,i+1); HOVER=-1; SEL=null; sync(); };
+    el.appendChild(b);
+  });
+}
+
+function renderList(){
+  const node = curNode(); if(!node) return;
+  const box=$('#list'); box.innerHTML='';
+  const q = $('#q').value.trim().toLowerCase();
+
+  let rows=[], title='ใหญ่สุดในโฟลเดอร์นี้', badge='';
+  if(q){
+    rows = searchTree(q, 200);
+    title='ผลค้นหา'; badge = rows.length+' รายการ';
+  } else {
+    rows = (node.c||[]).filter(x=>x.s>0).slice().sort((a,b)=>b.s-a.s).slice(0,60)
+      .map(n=>({node:n, path:node.n+'\\'+n.n}));
+    badge = (node.c?node.c.length:0)+' รายการ';
+  }
+  $('#listTitle').textContent = title;
+  $('#listCount').textContent = badge;
+  if(!rows.length){
+    const d=document.createElement('div'); d.className='empty'; d.style.height='80px';
+    d.textContent = q ? 'ไม่พบ' : 'ว่าง'; box.appendChild(d); return;
+  }
+  const maxS = rows[0].node.s || 1;
+  for(const r of rows){
+    const n=r.node, col=colorOf(n);
+    const el=document.createElement('div'); el.className='row';
+    el.innerHTML = `<div class="nm"><i class="dot" style="background:${col}"></i><span></span></div>
+                    <div class="sz mono">${fmt(n.s)}</div><div class="b"><i style="width:${Math.max(2,(n.s/maxS)*100)}%;background:${col}"></i></div>`;
+    el.querySelector('.nm span').textContent = n.n;
+    el.title = r.path;
+    el.onmouseenter=()=>{ const t=TILES.find(t=>t.node===n); HOVER = t? t.idx : -1; draw(); };
+    el.onmouseleave=()=>{ HOVER=-1; draw(); };
+    el.onclick=()=>{
+      if(n.d && n.c && n.c.length){ VIEW=VIEW.concat([n]); HOVER=-1; sync(); }
+      else reveal(r.path);
+    };
+    box.appendChild(el);
+  }
+}
+
+function renderLegend(){
+  const el=$('#legend'); el.innerHTML='';
+  CATS.forEach(c=>{
+    const s=document.createElement('span');
+    s.innerHTML=`<i class="dot" style="background:${c.c}"></i>${c.th}`;
+    el.appendChild(s);
+  });
+  const d=document.createElement('span');
+  d.innerHTML=`<i class="dot" style="background:${DIRCOLOR}"></i>folder`;
+  el.appendChild(d);
+}
+
+function absPath(){
+  const names = VIEW.map((n,i)=> i===0 ? '' : n.n);
+  return META.root.replace(/[\\/]+$/,'') + (names.length? '\\'+names.filter(Boolean).join('\\') : '');
+}
+
+function reveal(rel){
+  const base = META.root.replace(/[\\/]+$/,'');
+  const p = base + '\\' + rel.replace(/^[\\/]+/,'');
+  fetch('/api/reveal?path='+encodeURIComponent(p)).catch(()=>{});
+}
+
+function searchTree(q, cap){
+  const out=[]; const stack=[{node:curNode(), path:curNode().n}];
+  while(stack.length && out.length<cap){
+    const {node, path} = stack.pop();
+    for(const c of (node.c||[])){
+      const p = path+'\\'+c.n;
+      if(c.n.toLowerCase().includes(q)) out.push({node:c, path:p});
+      if(c.d && c.c && c.c.length) stack.push({node:c, path:p});
+    }
+  }
+  out.sort((a,b)=>b.node.s-a.node.s);
+  return out;
+}
+
+function sync(){ $('#tip').style.opacity=0; renderBread(); renderList(); draw(); }
+
+/* ---------- events ---------- */
+cv.addEventListener('mousemove', e=>{
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const t=hitTest(mx,my), tip=$('#tip');
+  const idx = t? t.idx : -1;
+  if(idx!==HOVER){ HOVER=idx; draw(); }
+  if(t){
+    const node=t.node, parent=curNode();
+    tip.querySelector('.t1').textContent=node.n;
+    tip.querySelector('.t2').textContent = fmt(node.s) + '  ·  ' +
+      (parent.s>0 ? (node.s/parent.s*100).toFixed(1)+'% ของโฟลเดอร์นี้' : '') +
+      (node.d && node.c ? '  ·  '+node.c.length+' รายการ' : '');
+    tip.querySelector('.t3').textContent = absPath() + '\\' + node.n;
+    tip.style.opacity=1;
+    const tw=tip.offsetWidth, th=tip.offsetHeight;
+    tip.style.left = Math.min(e.clientX+14, window.innerWidth-tw-12)+'px';
+    tip.style.top  = Math.min(e.clientY+14, window.innerHeight-th-12)+'px';
+    cv.style.cursor = node.d&&node.c&&node.c.length ? 'zoom-in' : 'default';
+  } else { tip.style.opacity=0; cv.style.cursor='default'; }
+});
+cv.addEventListener('mouseleave', ()=>{ $('#tip').style.opacity=0; HOVER=-1; draw(); });
+
+let lastClick=0;
+cv.addEventListener('click', e=>{
+  const r=cv.getBoundingClientRect(), t=hitTest(e.clientX-r.left, e.clientY-r.top);
+  if(!t) return;
+  const now=Date.now();
+  if(now-lastClick<320){ // double click
+    reveal((absPath()+'\\'+t.node.n).replace(META.root.replace(/[\\/]+$/,''),'').replace(/^[\\/]+/,''));
+    lastClick=0; return;
+  }
+  lastClick=now;
+  if(t.node.d && t.node.c && t.node.c.length){ VIEW=VIEW.concat([t.node]); HOVER=-1; sync(); }
+});
+
+window.addEventListener('keydown', e=>{
+  if(e.key==='Backspace' && document.activeElement.id!=='q'){
+    e.preventDefault();
+    if(VIEW.length>1){ VIEW=VIEW.slice(0,-1); HOVER=-1; sync(); }
+  }
+  if(e.key==='Escape'){ $('#q').value=''; renderList(); }
+});
+$('#q').addEventListener('input', ()=>{ renderList(); });
+$('#q').addEventListener('keydown', e=>{ if(e.key==='Enter'){ renderList(); } });
+
+new ResizeObserver(resize).observe($('#stage'));
+
+/* ---------- boot ---------- */
+// optional deep link: /#WEB-APP/11LOGS opens that subfolder directly
+function applyHash(){
+  const h = decodeURIComponent((location.hash||'').replace(/^#/,''));
+  if(!h) return;
+  const parts = h.split(/[\\/]+/).filter(Boolean);
+  let cur = ROOT;
+  for(const p of parts){
+    const nx = (cur.c||[]).find(c=>c.n.toLowerCase()===p.toLowerCase());
+    if(!nx) break;
+    VIEW.push(nx); cur = nx;
+  }
+}
+
+fetch('/api/tree').then(r=>r.json()).then(d=>{
+  META=d.meta; ROOT=d.tree; VIEW=[ROOT];
+  $('#cSize').textContent=fmt(META.bytes);
+  $('#cFiles').textContent=META.files.toLocaleString();
+  $('#cDirs').textContent=META.dirs.toLocaleString();
+  $('#cTime').textContent=(META.elapsedMs/1000).toFixed(2)+' s';
+  if(META.errors>0){ $('#cErrWrap').style.display='flex'; $('#cErr').textContent=META.errors; }
+  document.title='DEEPFIELD — '+META.root;
+  renderLegend(); applyHash(); sync(); resize();
+});
+</script>
+</body>
+</html>

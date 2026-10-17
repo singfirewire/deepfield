@@ -1,0 +1,9 @@
+# build artifacts
+deepfield.exe
+deepfield.exe~
+*.exe
+*.test
+
+# scratch
+/scratch/
+*.log

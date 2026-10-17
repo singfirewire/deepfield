@@ -396,14 +396,17 @@ func main() {
 			return
 		}
 	}
-	root := "."
+	root := ""
 	port := 7788
 	open := true
+	webMode := false
 	workers := 0
 	rest := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--web":
+			webMode = true
 		case a == "--port" && i+1 < len(args):
 			i++
 			port, _ = strconv.Atoi(args[i])
@@ -423,7 +426,14 @@ func main() {
 	if len(rest) > 0 {
 		root = rest[0]
 	}
-	cmdServe(root, port, open, workers)
+	if webMode {
+		if root == "" {
+			root = "."
+		}
+		cmdServe(root, port, open, workers)
+		return
+	}
+	runGUI(root, workers)
 }
 
 func usage() {
@@ -458,11 +468,9 @@ func resolveRoot(p string) string {
 func cmdServe(root string, port int, openBrowser bool, workers int) {
 	root = resolveRoot(root)
 	if st, err := os.Stat(root); err != nil {
-		fmt.Fprintf(os.Stderr, "ไม่พบโฟลเดอร์: %s\n", root)
-		os.Exit(1)
+		fatal(fmt.Sprintf("ไม่พบโฟลเดอร์: %s", root))
 	} else if !st.IsDir() {
-		fmt.Fprintf(os.Stderr, "แผงนี้ต้องเป็นโฟลเดอร์ ไม่ใช่ไฟล์: %s\n", root)
-		os.Exit(1)
+		fatal(fmt.Sprintf("ตัวนี้ต้องชี้ไปที่โฟลเดอร์ ไม่ใช่ไฟล์: %s", root))
 	}
 
 	fmt.Printf("\n  %s v%s\n", appName, appVersion)
@@ -531,12 +539,14 @@ func cmdServe(root string, port int, openBrowser bool, workers int) {
 		w.Write([]byte(`{"ok":true}`))
 	})
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	ln, err := net.Listen("tcp", addr)
+	ln, gotPort, err := listenAuto(port)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "พอร์ต %d ถูกใช้อยู่ — ลอง --port 7799\n", port)
-		os.Exit(1)
+		fatal(fmt.Sprintf("เปิดพอร์ตไม่ได้ (ลอง %d–%d แล้ว): %v", port, port+portTries-1, err))
 	}
+	if gotPort != port {
+		fmt.Printf("\n  พอร์ต %d ไม่ว่าง (มีตัวอื่นเปิดอยู่) → ใช้ %d แทน\n", port, gotPort)
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", gotPort)
 	url := "http://" + addr
 	fmt.Printf("\n  เปิดใช้งานที่  %s\n", url)
 	fmt.Printf("  กด Ctrl+C เพื่อปิด\n\n")
@@ -592,6 +602,34 @@ func cmdScan(args []string) {
 }
 
 func intp(v int) *int { return &v }
+
+const portTries = 25
+
+// listenAuto tries port, port+1, … so a double-clicked exe never dies just
+// because an earlier instance is still holding the default port.
+func listenAuto(port int) (net.Listener, int, error) {
+	var lastErr error
+	for i := 0; i < portTries; i++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port+i))
+		if err == nil {
+			return ln, port + i, nil
+		}
+		lastErr = err
+	}
+	return nil, 0, lastErr
+}
+
+// fatal prints an error and, when the exe was launched by double-click
+// (no arguments → no shell holding the window), waits for Enter so the
+// message is readable instead of the window vanishing instantly.
+func fatal(msg string) {
+	fmt.Fprintln(os.Stderr, "\n  "+msg)
+	if len(os.Args) == 1 {
+		fmt.Print("\n  กด Enter เพื่อปิดหน้าต่าง…")
+		fmt.Scanln()
+	}
+	os.Exit(1)
+}
 
 func maxf(a, b float64) float64 {
 	if a > b {
